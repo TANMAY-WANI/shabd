@@ -1,5 +1,5 @@
 'use client'
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
     RoomProvider,
     ClientSideSuspense,
@@ -7,23 +7,111 @@ import {
 import Header from './Header';
 import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/nextjs';
 import { Editor } from './editor/Editor';
-const CollaborativeRoom = () => {
+import ActiveCollaborators from './editor/ActiveCollaborators';
+import { Input } from './ui/input';
+import Image from 'next/image';
+import { updateDocument } from '@/lib/actions/room.actions';
+import Loader from './Loader';
+const CollaborativeRoom = ({roomId,roomMetadata,users,currentUserType}:CollaborativeRoomProps) => {
+
+  
+  const [documentTitle, setDocumentTitle] = useState(roomMetadata?.title)
+  const [editing, setEditing] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLDivElement>(null)
+
+const updateDocTitle = async (e: React.KeyboardEvent<HTMLInputElement>)=>{
+
+  console.log(e.key);
+  
+  if (e.key === 'Enter'){
+    setLoading(true)
+
+    try {
+        if (documentTitle !== roomMetadata.title){
+          const updatedDocument = await updateDocument(roomId,documentTitle)
+          if (updatedDocument) setEditing(false)
+        }
+    } catch (error) {
+      console.log(error);
+    }
+
+    setLoading(false)
+  }
+}
+
+useEffect(()=>{
+  const handleClickOutside = async (e:MouseEvent)=>{
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)){
+        setEditing(false);
+        await updateDocument(roomId,documentTitle);
+      }
+
+  }
+  document.addEventListener('mousedown',handleClickOutside);
+  return ()=>{
+    document.removeEventListener('mousedown',handleClickOutside)
+  }
+},[documentTitle])
+
+useEffect(()=>{
+  if (editing && inputRef.current){
+    inputRef.current.focus();
+  }
+},[editing])
   return (
-    <RoomProvider id="my-room">
-        <ClientSideSuspense fallback={<div>Loading…</div>}>
+    <RoomProvider id={roomId}>
+        <ClientSideSuspense fallback={<Loader/>}>
             <div className='collaborative-room'>
             <Header>
-        <div className='flex w-fit items-center justify-center gap-2'>
-            <p className='document-title'>Share</p>
+        <div ref={containerRef} className='flex w-fit items-center justify-center gap-2'>
+              {editing && !loading ? (
+                <Input
+                type='text'
+                value={documentTitle}
+                ref={inputRef}
+                placeholder='Enter title'
+                onChange={(e)=>setDocumentTitle(e.target.value)}
+                onKeyDown={updateDocTitle}
+                disabled = {!editing}
+                className='document-title-input'
+                />
+              ):(
+                <>
+                <p className='document-title'>{documentTitle}</p>
+                </>
+              )}
+               {currentUserType === "editor" && !editing && (
+                <Image
+                  src="/assets/icons/edit.svg"
+                  alt='edit'
+                  height={24}
+                  width={24}
+                  className='cursor-pointer'
+                  onClick={()=>setEditing(true)}
+                />   
+               ) }
+               {currentUserType != "editor" && !editing && (
+                <p className='view-only-tag'>View Only</p>
+               )}
+
+               {loading && (
+                <p className='text-sm text-gray-400'>Saving</p>
+               )}
+            </div>
+            <div className='flex w-full flex-1 justify-end gap-2 sm:gap-3'>
+              <ActiveCollaborators/>
+  
             <SignedOut>
             <SignInButton />
           </SignedOut>
           <SignedIn>
             <UserButton />
           </SignedIn>
-        </div>
+          </div>
       </Header>
-        <Editor/>
+        <Editor roomId = {roomId} currentUserType = {currentUserType}/>
             </div>
         </ClientSideSuspense>
       </RoomProvider>
